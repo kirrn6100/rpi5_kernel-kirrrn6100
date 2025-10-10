@@ -2,8 +2,7 @@
 
 # --- Настройки репозитория ---
 KERNEL_GIT_URL="https://github.com/raspberrypi/linux.git"
-KERNEL_BRANCH="rpi-6.1.y" # Используем актуальную ветку RPi
-
+KERNEL_BRANCH="rpi-6.6.y" # Используем более актуальную ветку RPi5
 # --- Настройки локальной среды ---
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 DOCKER_IMAGE_NAME="rpi5-kernel-builder"
@@ -45,8 +44,8 @@ mkdir -p "$OUTPUT_DIR"
 
 # --- 2. Сборка Docker-образа ---
 echo "--- 2. Сборка Docker-образа '$DOCKER_IMAGE_NAME' ---"
-# Примечание: Эту команду можно пропустить, если образ уже собран и Dockerfile не менялся.
-# docker build -t "$DOCKER_IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR" || exit 1
+# *** ИСПРАВЛЕНО: Раскомментирована команда docker build ***
+docker build -t "$DOCKER_IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR" || exit 1
 
 # --- 3. Запуск контейнера для сборки ---
 echo "--- 3. Запуск сборки DEB-пакетов внутри контейнера ---"
@@ -91,16 +90,16 @@ NPROCS=\$(nproc)
 echo "--> Начинаем сборку DEB-пакетов с использованием \$NPROCS потоков."
 
 # --- ЗАПУСК СБОРКИ DEB-ПАКЕТОВ ---
-# Используем 'bindeb-pkg' для сборки бинарных пакетов
-# Используем опцию 'nocheck' в DEB_BUILD_OPTIONS для обхода проверки зависимостей
-# (чтобы избежать той же проблемы, что была раньше, хотя в Docker она маловероятна)
-DEB_BUILD_OPTIONS='nocheck' make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$NPROCS bindeb-pkg
+# Мы добавляем 'KDEB_PKGVERSION' чтобы явно задать версию, 
+# минуя необходимость обращаться к Git для получения хэша или тега.
+export KDEB_PKGVERSION="6.6.y-custom-rpi5-$(date +%Y%m%d%H%M)"
+export DEB_BUILD_OPTIONS='nocheck nodoc'
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$NPROCS bindeb-pkg
 
 # --- 4. Копирование готовых пакетов ---
 echo "--> Копирование готовых DEB-пакетов в /tmp/output..."
-# DEB-пакеты создаются в родительском каталоге исходников ядра (~/tmp-kernel/raspberrypi-linux/..)
-# /usr/src/linux/.. - это /usr/src/
-# Нам нужно скопировать все *.deb файлы из /usr/src/
+# DEB-пакеты создаются в родительском каталоге исходников ядра
+# Копируем все *.deb файлы из /usr/src/ (родительский каталог для /usr/src/linux)
 cp /usr/src/*.deb /tmp/output/ || true
 
 echo "СБОРКА УСПЕШНО ЗАВЕРШЕНА В КОНТЕЙНЕРЕ!"
