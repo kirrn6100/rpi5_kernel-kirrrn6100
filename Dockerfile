@@ -17,7 +17,10 @@ RUN apt-get update && \
         bc \
         rsync \
         pkg-config \
-        crossbuild-essential-arm64 && \
+        crossbuild-essential-arm64 \
+        debhelper \
+        kmod \
+        cpio && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

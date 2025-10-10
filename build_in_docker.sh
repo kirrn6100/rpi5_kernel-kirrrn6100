@@ -2,7 +2,7 @@
 
 # --- Настройки репозитория ---
 KERNEL_GIT_URL="https://github.com/raspberrypi/linux.git"
-KERNEL_BRANCH="rpi-6.6.y" # Используем более актуальную ветку RPi5
+KERNEL_BRANCH="rpi-6.12.y" # Вернулись к выбранной вами ветке
 # --- Настройки локальной среды ---
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 DOCKER_IMAGE_NAME="rpi5-kernel-builder"
@@ -90,9 +90,8 @@ NPROCS=\$(nproc)
 echo "--> Начинаем сборку DEB-пакетов с использованием \$NPROCS потоков."
 
 # --- ЗАПУСК СБОРКИ DEB-ПАКЕТОВ ---
-# Мы добавляем 'KDEB_PKGVERSION' чтобы явно задать версию, 
-# минуя необходимость обращаться к Git для получения хэша или тега.
-export KDEB_PKGVERSION="6.6.y-custom-rpi5-$(date +%Y%m%d%H%M)"
+# Обновляем версию, чтобы соответствовать ветке 6.12.y
+export KDEB_PKGVERSION="6.12.y-custom-rpi5-$(date +%Y%m%d%H%M)"
 export DEB_BUILD_OPTIONS='nocheck nodoc'
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$NPROCS bindeb-pkg
 
