@@ -1,10 +1,10 @@
-name: Build RPi5 Custom Kernel
+name: Build RPi5 Custom Kernel1
 
 on:
   # Запускать при каждом изменении (push) в ветке main
   push:
     branches:
-      - main
+      - main-kerrnel-make
   # Позволяет запускать сборку вручную через интерфейс GitHub
   workflow_dispatch:
 
