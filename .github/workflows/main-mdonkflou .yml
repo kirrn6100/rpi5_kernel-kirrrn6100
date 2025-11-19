@@ -1,0 +1,37 @@
+name: Build RPi5 Custom Kernel
+
+on:
+  # Запускать при каждом изменении (push) в ветке main
+  push:
+    branches:
+      - main-kerrnel-make
+  # Позволяет запускать сборку вручную через интерфейс GitHub
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    # Использовать последнюю версию Ubuntu для запуска
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker BuildX
+      # Настройка Docker для создания образа
+      uses: docker/setup-buildx-action@v3
+
+    - name: Run Kernel Build Script
+      # Запуск нашего скрипта, который собирает ядро внутри контейнера Docker
+      run: |
+        chmod +x build_in_docker.sh
+        ./build_in_docker.sh
+        
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: rpi5-kernel-artifacts
+        # Папка, куда скрипт сохраняет готовые файлы
+        path: output/
+        # Хранить артефакты 7 дней
+        retention-days: 7
+
