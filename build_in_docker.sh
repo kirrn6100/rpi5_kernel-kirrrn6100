@@ -3,7 +3,7 @@
 
 # --- Настройки репозитория ---
 KERNEL_GIT_URL="https://github.com/raspberrypi/linux.git"
-KERNEL_BRANCH="rpi-6.1.y" # Используем актуальную ветку RPi
+KERNEL_BRANCH="rpi-6.1.12" # Используем актуальную ветку RPi
 
 # --- Настройки локальной среды ---
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
