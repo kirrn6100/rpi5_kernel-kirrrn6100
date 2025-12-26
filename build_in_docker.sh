@@ -1,14 +1,17 @@
+@@ -0,0 +1,143 @@
 #!/bin/bash
 
 # --- Настройки репозитория ---
 KERNEL_GIT_URL="https://github.com/raspberrypi/linux.git"
-KERNEL_BRANCH="rpi-6.12.y" # Вернулись к выбранной вами ветке
+KERNEL_BRANCH="rpi-6.1.12" # Используем актуальную ветку RPi
+
 # --- Настройки локальной среды ---
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 DOCKER_IMAGE_NAME="rpi5-kernel-builder"
 CONTAINER_NAME="rpi5-kernel-build-temp"
 KERNEL_DIR="$SCRIPT_DIR/raspberrypi-linux"
 CONFIG_FILE="$SCRIPT_DIR/.config"
+MODULES_ARCHIVE="modules_rpi5.tar.gz"
 OUTPUT_DIR="$SCRIPT_DIR/output"
 
 # --- Требуемые конфигурации для IOSM и WPA3/SAE ---
@@ -25,8 +28,7 @@ echo "--- 1. Подготовка: Клонирование репозитори
 # Клонирование, если репозиторий еще не существует
 if [ ! -d "$KERNEL_DIR" ]; then
     echo "Клонирование репозитория $KERNEL_GIT_URL..."
-    # --single-branch для ускорения клонирования
-    git clone --depth 1 --branch $KERNEL_BRANCH --single-branch $KERNEL_GIT_URL $KERNEL_DIR || exit 1
+    git clone --depth 1 --branch $KERNEL_BRANCH $KERNEL_GIT_URL $KERNEL_DIR || exit 1
 else
     echo "Репозиторий уже существует. Обновление..."
     cd $KERNEL_DIR && git pull origin $KERNEL_BRANCH || exit 1
@@ -44,11 +46,10 @@ mkdir -p "$OUTPUT_DIR"
 
 # --- 2. Сборка Docker-образа ---
 echo "--- 2. Сборка Docker-образа '$DOCKER_IMAGE_NAME' ---"
-# *** ИСПРАВЛЕНО: Раскомментирована команда docker build ***
 docker build -t "$DOCKER_IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR" || exit 1
 
 # --- 3. Запуск контейнера для сборки ---
-echo "--- 3. Запуск сборки DEB-пакетов внутри контейнера ---"
+echo "--- 3. Запуск сборки ядра внутри контейнера ---"
 
 # Копирование .config в папку ядра
 cp "$CONFIG_FILE" "$KERNEL_DIR/.config"
@@ -67,39 +68,53 @@ set_config() {
     local full_setting="\$1"
     local key=\$(echo "\$full_setting" | cut -d'=' -f1)
     
-    # 1. Если не задан, удалить строку "is not set" и добавить новую
     if grep -q "^# \$key is not set" "\$CONFIG_PATH"; then
         sed -i "/^# \$key is not set/d" "\$CONFIG_PATH"
         echo "\$full_setting" >> "\$CONFIG_PATH"
-    # 2. Если задан, заменить значение
     elif grep -q "^\$key=" "\$CONFIG_PATH"; then
         sed -i "s/^\$key=.*/\$full_setting/" "\$CONFIG_PATH"
-    # 3. Если не найден (редко), добавить в конец
     else
         echo "\$full_setting" >> "\$CONFIG_PATH"
     fi
 }
 
 # Применение конфигурации (IOSM и WPA3)
+REQUIRED_CONFIGS=(
+    "CONFIG_IOSM=m"
+    "CONFIG_MAC80211_SAE=y"
+    "CONFIG_CFG80211=y"
+    "CONFIG_MAC80211=y"
+)
 for setting in "\${REQUIRED_CONFIGS[@]}"; do
     set_config "\$setting"
 done
 
 # Определение числа потоков
 NPROCS=\$(nproc)
-echo "--> Начинаем сборку DEB-пакетов с использованием \$NPROCS потоков."
+echo "--> Начинаем сборку с использованием \$NPROCS потоков."
 
-# --- ЗАПУСК СБОРКИ DEB-ПАКЕТОВ ---
-# Обновляем версию, чтобы соответствовать ветке 6.12.y
-export KDEB_PKGVERSION="6.12.y-custom-rpi5-$(date +%Y%m%d%H%M)"
-export DEB_BUILD_OPTIONS='nocheck nodoc'
-make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j\$NPROCS bindeb-pkg
+# 3.1. Прямая сборка ядра и DTB
+make Image dtbs -j\$NPROCS
 
-# --- 4. Копирование готовых пакетов ---
-echo "--> Копирование готовых DEB-пакетов в /tmp/output..."
-# DEB-пакеты создаются в родительском каталоге исходников ядра
-# Копируем все *.deb файлы из /usr/src/ (родительский каталог для /usr/src/linux)
-cp /usr/src/*.deb /tmp/output/ || true
+# 3.2. Сборка модулей
+make modules -j\$NPROCS
+
+# --- 4. Установка модулей и упаковка ---
+MODULES_STAGING_DIR="/tmp/rpi5_modules_staging"
+mkdir -p \$MODULES_STAGING_DIR
+
+# Установка модулей во временный каталог
+make modules_install INSTALL_MOD_PATH=\$MODULES_STAGING_DIR
+
+# Перемещение ядра, DTB и создание tar-архива модулей
+echo "--> Копирование артефактов в /tmp/output..."
+mkdir -p /tmp/output
+cp arch/arm64/boot/Image /tmp/output/kernel_2712.img
+cp arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dtb /tmp/output/bcm2712-rpi-5-b.dtb
+
+# Создание tar-архива модулей
+cd \$MODULES_STAGING_DIR/..
+tar -czvf /tmp/output/${MODULES_ARCHIVE} lib/
 
 echo "СБОРКА УСПЕШНО ЗАВЕРШЕНА В КОНТЕЙНЕРЕ!"
 EOF
@@ -115,11 +130,14 @@ docker run --rm \
 
 BUILD_STATUS=$?
 
-# --- 5. Проверка и завершение ---
+# --- 4. Проверка и завершение ---
 if [ $BUILD_STATUS -eq 0 ]; then
     echo "--- УСПЕХ: Файлы сборки доступны ---"
-    echo "DEB-пакеты ядра и модулей сохранены в локальной папке $OUTPUT_DIR/"
-    echo "Ищите файлы с расширением *.deb"
+    echo "Ядро и модули сохранены в локальной папке $OUTPUT_DIR/"
+    echo "1. kernel_2712.img"
+    echo "2. bcm2712-rpi-5-b.dtb"
+    echo "3. modules_rpi5.tar.gz"
+    echo "Теперь вы можете загрузить эти файлы на SD-карту."
 else
     echo "!!! КРИТИЧЕСКАЯ ОШИБКА СБОРКИ. Код ошибки: $BUILD_STATUS !!!"
     echo "Проверьте вывод Docker на предмет ошибок компиляции."
